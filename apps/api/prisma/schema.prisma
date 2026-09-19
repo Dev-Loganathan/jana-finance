@@ -1,0 +1,696 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  INVITED
+}
+
+enum DataScope {
+  ALL
+  BRANCH
+  ASSIGNED
+}
+
+enum TokenPurpose {
+  INVITE
+  RESET
+}
+
+/// Roles are data. `locked` = the Super Admin role: cannot be edited, deleted or assigned via UI.
+model Role {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  key         String?   @unique
+  name        String    @unique
+  description String    @default("")
+  system      Boolean   @default(false)
+  locked      Boolean   @default(false)
+  dataScope   DataScope @default(ALL)
+  permissions String[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  users       User[]
+}
+
+model User {
+  id                 String          @id @default(uuid(7)) @db.Uuid
+  employeeCode       String?         @unique
+  firstName          String
+  lastName           String          @default("")
+  /// Always stored lower-case.
+  email              String          @unique
+  phone              String
+  passwordHash       String
+  roleId             String          @db.Uuid
+  role               Role            @relation(fields: [roleId], references: [id])
+  status             UserStatus      @default(ACTIVE)
+  mustChangePassword Boolean         @default(true)
+  failedLogins       Int             @default(0)
+  lockedUntil        DateTime?
+  /// AES-256-GCM encrypted (see CryptoService). Never returned by the API.
+  totpSecretEnc      String?
+  totpEnabled        Boolean         @default(false)
+  lastLoginAt        DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  deletedAt          DateTime?
+  sessions           Session[]
+  tokens             PasswordToken[]
+
+  @@index([status])
+}
+
+/// One row per refresh token. Rotating: each refresh revokes the row and issues a child in the same family.
+/// Presenting an already-rotated token revokes the whole family (theft detection).
+model Session {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  userId        String    @db.Uuid
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  familyId      String    @db.Uuid
+  tokenHash     String    @unique
+  ip            String?
+  userAgent     String?
+  createdAt     DateTime  @default(now())
+  lastUsedAt    DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  revokedReason String?
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+model PasswordToken {
+  id        String       @id @default(uuid(7)) @db.Uuid
+  userId    String       @db.Uuid
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String       @unique
+  purpose   TokenPurpose
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime     @default(now())
+}
+
+/// Append-only: UPDATE and DELETE are blocked by a database trigger (see migrations).
+model AuditLog {
+  id        BigInt   @id @default(autoincrement())
+  at        DateTime @default(now())
+  userId    String?  @db.Uuid
+  userEmail String?
+  action    String
+  entity    String
+  entityId  String?
+  before    Json?
+  after     Json?
+  ip        String?
+  userAgent String?
+
+  @@index([at])
+  @@index([entity, entityId])
+  @@index([userId])
+}
+
+// ===================== Customers and KYC =====================
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum MaritalStatus {
+  SINGLE
+  MARRIED
+  WIDOWED
+  DIVORCED
+}
+
+enum ResidenceType {
+  OWN
+  RENTED
+  FAMILY
+  COMPANY
+}
+
+enum OccupationType {
+  SALARIED
+  SELF_EMPLOYED
+  BUSINESS
+  FARMER
+  RETIRED
+  STUDENT
+  OTHER
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum CreditCategory {
+  EXCELLENT
+  GOOD
+  MEDIUM
+  POOR
+}
+
+/// DRAFT = partially saved wizard. Submit moves it to ACTIVE (approval step becomes a setting later).
+enum CustomerStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PARTIAL
+  COMPLETE
+  VERIFIED
+  EXPIRED
+}
+
+enum KycDocType {
+  AADHAAR
+  PAN
+  VOTER_ID
+  DRIVING_LICENCE
+  PASSPORT
+  PHOTO
+  SIGNATURE
+  ADDRESS_PROOF
+  INCOME_PROOF
+  BANK_STATEMENT
+  OTHER
+}
+
+enum KycDocStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum WatchStatus {
+  NONE
+  WATCHLIST
+  BLACKLIST
+}
+
+enum NoteKind {
+  NOTE
+  CALL
+  VISIT
+}
+
+model Customer {
+  id     String         @id @default(uuid(7)) @db.Uuid
+  /// Human-readable, e.g. CUS1007. Assigned when the draft is created.
+  code   String         @unique
+  status CustomerStatus @default(DRAFT)
+
+  // Step 1: basic
+  firstName     String
+  lastName      String         @default("")
+  gender        Gender?
+  dob           DateTime?      @db.Date
+  phone         String?
+  altPhone      String?
+  email         String?
+  maritalStatus MaritalStatus?
+
+  // Step 2: address (one set of locality fields shared by both addresses, as in the existing app)
+  currentAddress   String?
+  permanentAddress String?
+  country          String         @default("India")
+  state            String?
+  district         String?
+  pincode          String?
+  landmark         String?
+  residenceType    ResidenceType?
+
+  // Step 4: employment
+  occupationType        OccupationType?
+  companyName           String?
+  designation           String?
+  workExperience        String?
+  monthlyIncomePaise    BigInt          @default(0)
+  additionalIncomePaise BigInt          @default(0)
+  businessName          String?
+
+  // Step 5: family and nominee
+  fatherName      String?
+  motherName      String?
+  spouseName      String?
+  nomineeName     String?
+  nomineeRelation String?
+
+  // Step 6: evaluation (CIBIL is entered by staff; risk and category are computed)
+  cibilScore      Int?
+  existingLoans   Int             @default(0)
+  monthlyEmiPaise BigInt          @default(0)
+  dtiBp           Int?
+  riskLevel       RiskLevel?
+  category        CreditCategory?
+
+  tags         String[]
+  /// Watchlist / blacklist. Blacklisted customers are blocked from new loans and chits (enforced by those modules).
+  watchStatus  WatchStatus @default(NONE)
+  watchReason  String?
+  watchSetById String?     @db.Uuid
+  watchSetAt   DateTime?
+
+  kycStatus      KycStatus @default(NOT_STARTED)
+  completedSteps String[]
+  lastStep       String    @default("basic")
+
+  /// DPDP consent captured at registration
+  consentAt   DateTime?
+  consentById String?   @db.Uuid
+
+  createdById String    @db.Uuid
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  submittedAt DateTime?
+  deletedAt   DateTime?
+
+  documents  KycDocument[]
+  files      CustomerFile[]
+  bank       BankAccount[]
+  references CustomerReference[]
+  notes      CustomerNote[]
+
+  @@index([status, deletedAt])
+  @@index([phone])
+  @@index([riskLevel])
+  @@index([kycStatus])
+}
+
+model CustomerReference {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  customerId String   @db.Uuid
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name       String
+  mobile     String
+  position   Int      @default(0)
+}
+
+model BankAccount {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  customerId       String   @db.Uuid
+  customer         Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  bankName         String
+  accountNumberEnc String
+  accountLast4     String
+  accountLength    Int
+  accountHash      String
+  ifsc             String
+  isPrimary        Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  @@index([accountHash])
+}
+
+/// One row per identity/KYC document. Numbers are encrypted; the blind index (HMAC) is used to find duplicates.
+model KycDocument {
+  id              String         @id @default(uuid(7)) @db.Uuid
+  customerId      String         @db.Uuid
+  customer        Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type            KycDocType
+  numberEnc       String?
+  numberLast4     String?
+  numberLength    Int?
+  numberHash      String?
+  status          KycDocStatus   @default(PENDING)
+  issueDate       DateTime?      @db.Date
+  expiryDate      DateTime?      @db.Date
+  verifiedById    String?        @db.Uuid
+  verifiedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  files           CustomerFile[]
+
+  @@unique([customerId, type])
+  @@index([numberHash])
+  @@index([status])
+}
+
+/// Uploaded file (KYC image/PDF, photo, signature). Never publicly served: access is via short-lived signed URLs.
+model CustomerFile {
+  id           String       @id @default(uuid(7)) @db.Uuid
+  customerId   String       @db.Uuid
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  documentId   String?      @db.Uuid
+  document     KycDocument? @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  /// e.g. "front", "back", "selfie"
+  label        String       @default("")
+  storageKey   String       @unique
+  mimeType     String
+  sizeBytes    Int
+  sha256       String
+  originalName String
+  uploadedById String       @db.Uuid
+  createdAt    DateTime     @default(now())
+
+  @@index([customerId])
+  @@index([documentId])
+}
+
+/// Notes, call/visit logs and follow-up tasks (a note with `followUpOn` is a task until `completedAt` is set).
+model CustomerNote {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  customerId  String    @db.Uuid
+  customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  kind        NoteKind  @default(NOTE)
+  body        String
+  outcome     String?
+  followUpOn  DateTime? @db.Date
+  completedAt DateTime?
+  authorId    String    @db.Uuid
+  authorName  String
+  createdAt   DateTime  @default(now())
+
+  @@index([customerId, createdAt])
+  @@index([followUpOn, completedAt])
+}
+
+// ===================== Ledger =====================
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  INCOME
+  EXPENSE
+  EQUITY
+}
+
+model Account {
+  id        String        @id @default(uuid(7)) @db.Uuid
+  code      String        @unique
+  name      String
+  type      AccountType
+  system    Boolean       @default(false)
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  lines     JournalLine[]
+}
+
+/// Immutable: UPDATE and DELETE are blocked by triggers. Corrections are new entries that reverse earlier ones.
+model JournalEntry {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  number         String        @unique
+  entryDate      DateTime      @db.Date
+  memo           String
+  refType        String?
+  refId          String?
+  /// Same key = same posting, so retries and double clicks can never post twice.
+  idempotencyKey String        @unique
+  reversesId     String?       @unique @db.Uuid
+  reverses       JournalEntry? @relation("Reversal", fields: [reversesId], references: [id])
+  reversedBy     JournalEntry? @relation("Reversal")
+  postedById     String?       @db.Uuid
+  createdAt      DateTime      @default(now())
+  lines          JournalLine[]
+
+  @@index([refType, refId])
+  @@index([entryDate])
+}
+
+model JournalLine {
+  id          String       @id @default(uuid(7)) @db.Uuid
+  entryId     String       @db.Uuid
+  entry       JournalEntry @relation(fields: [entryId], references: [id])
+  accountId   String       @db.Uuid
+  account     Account      @relation(fields: [accountId], references: [id])
+  debitPaise  BigInt       @default(0)
+  creditPaise BigInt       @default(0)
+  /// Optional analysis dimension, e.g. the chit group, so a group ledger can be read straight from the journal.
+  dimension   String?
+
+  @@index([entryId])
+  @@index([accountId])
+  @@index([dimension])
+}
+
+// ===================== Chit funds =====================
+
+enum ChitType {
+  AUCTION
+  LOTTERY
+  FIXED
+}
+
+enum ChitStatus {
+  DRAFT
+  OPEN_FOR_ENROLMENT
+  RUNNING
+  COMPLETED
+  CANCELLED
+}
+
+enum CycleStatus {
+  SCHEDULED
+  CLOSED
+}
+
+enum PayMode {
+  CASH
+  UPI
+  BANK_TRANSFER
+  CHEQUE
+  SET_OFF
+}
+
+enum PaymentStatus {
+  POSTED
+  REVERSED
+}
+
+enum PayoutStatus {
+  PENDING
+  APPROVED
+  PAID
+}
+
+enum AllocationKind {
+  INSTALLMENT
+  PENALTY
+  ADVANCE
+  ADVANCE_APPLIED
+}
+
+model ChitGroup {
+  id                       String     @id @default(uuid(7)) @db.Uuid
+  code                     String     @unique
+  name                     String
+  type                     ChitType   @default(AUCTION)
+  chitValuePaise           BigInt
+  members                  Int
+  durationMonths           Int
+  monthlySubscriptionPaise BigInt
+  /// Basis points: 500 = 5%
+  commissionBp             Int        @default(500)
+  minBidBp                 Int
+  maxBidBp                 Int
+  startDate                DateTime   @db.Date
+  auctionDay               Int
+  dueDaysAfterAuction      Int        @default(5)
+  penaltyRateBp            Int        @default(0)
+  penaltyGraceDays         Int        @default(3)
+  registrationFeePaise     BigInt     @default(0)
+  status                   ChitStatus @default(DRAFT)
+  notes                    String?
+  cancelledReason          String?
+  createdById              String     @db.Uuid
+  createdAt                DateTime   @default(now())
+  updatedAt                DateTime   @updatedAt
+  deletedAt                DateTime?
+
+  tickets  ChitTicket[]
+  cycles   ChitCycle[]
+  waitlist ChitWaitlist[]
+
+  @@index([status, deletedAt])
+}
+
+/// One row per ticket (1..members), created with the group. customerId is null while the seat is vacant.
+model ChitTicket {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  groupId      String    @db.Uuid
+  group        ChitGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  number       Int
+  customerId   String?   @db.Uuid
+  /// Has this ticket won its prize? A ticket can win only once.
+  prized       Boolean   @default(false)
+  prizedMonth  Int?
+  /// Order for FIXED chits (defaults to the ticket number)
+  payoutOrder  Int
+  /// Money paid ahead of installments that are not yet due
+  advancePaise BigInt    @default(0)
+  joinedAt     DateTime?
+  createdAt    DateTime  @default(now())
+
+  installments ChitInstallment[]
+  payments     ChitPayment[]
+  transfers    ChitTransfer[]
+  bids         ChitBid[]
+
+  @@unique([groupId, number])
+  @@index([customerId])
+}
+
+model ChitWaitlist {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  groupId    String    @db.Uuid
+  group      ChitGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  customerId String    @db.Uuid
+  note       String?
+  createdAt  DateTime  @default(now())
+
+  @@unique([groupId, customerId])
+}
+
+model ChitTransfer {
+  id             String     @id @default(uuid(7)) @db.Uuid
+  ticketId       String     @db.Uuid
+  ticket         ChitTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  fromCustomerId String     @db.Uuid
+  toCustomerId   String     @db.Uuid
+  reason         String
+  byUserId       String     @db.Uuid
+  createdAt      DateTime   @default(now())
+}
+
+model ChitCycle {
+  id                     String      @id @default(uuid(7)) @db.Uuid
+  groupId                String      @db.Uuid
+  group                  ChitGroup   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  month                  Int
+  auctionDate            DateTime    @db.Date
+  dueDate                DateTime    @db.Date
+  status                 CycleStatus @default(SCHEDULED)
+  winnerTicketId         String?     @db.Uuid
+  method                 String?
+  discountPaise          BigInt?
+  commissionPaise        BigInt?
+  dividendPerMemberPaise BigInt?
+  residuePaise           BigInt?
+  prizePaise             BigInt?
+  netInstallmentPaise    BigInt?
+  note                   String?
+  closedAt               DateTime?
+  closedById             String?     @db.Uuid
+  commissionEntryId      String?     @db.Uuid
+
+  bids         ChitBid[]
+  installments ChitInstallment[]
+  payout       ChitPayout?
+
+  @@unique([groupId, month])
+}
+
+/// Append-only record of every bid (a trigger blocks UPDATE and DELETE).
+model ChitBid {
+  id            String     @id @default(uuid(7)) @db.Uuid
+  cycleId       String     @db.Uuid
+  cycle         ChitCycle  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  ticketId      String     @db.Uuid
+  ticket        ChitTicket @relation(fields: [ticketId], references: [id])
+  discountPaise BigInt
+  /// Order the bids were recorded in: earlier wins a tie
+  seq           Int
+  recordedById  String     @db.Uuid
+  createdAt     DateTime   @default(now())
+
+  @@unique([cycleId, seq])
+  @@index([cycleId])
+}
+
+model ChitInstallment {
+  id            String                  @id @default(uuid(7)) @db.Uuid
+  cycleId       String                  @db.Uuid
+  cycle         ChitCycle               @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  ticketId      String                  @db.Uuid
+  ticket        ChitTicket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  dueDate       DateTime                @db.Date
+  basePaise     BigInt
+  /// Filled when the auction closes; until then the installment is not yet payable
+  dividendPaise BigInt                  @default(0)
+  netDuePaise   BigInt?
+  paidPaise     BigInt                  @default(0)
+  allocations   ChitPaymentAllocation[]
+
+  @@unique([cycleId, ticketId])
+  @@index([ticketId])
+}
+
+model ChitPayment {
+  id             String                  @id @default(uuid(7)) @db.Uuid
+  receiptNo      String                  @unique
+  groupId        String                  @db.Uuid
+  ticketId       String                  @db.Uuid
+  ticket         ChitTicket              @relation(fields: [ticketId], references: [id])
+  amountPaise    BigInt
+  mode           PayMode
+  reference      String?
+  paidOn         DateTime                @db.Date
+  idempotencyKey String                  @unique
+  status         PaymentStatus           @default(POSTED)
+  reversedAt     DateTime?
+  reversalReason String?
+  journalEntryId String?                 @db.Uuid
+  receivedById   String                  @db.Uuid
+  createdAt      DateTime                @default(now())
+  allocations    ChitPaymentAllocation[]
+
+  @@index([ticketId])
+  @@index([groupId])
+}
+
+model ChitPaymentAllocation {
+  id            String           @id @default(uuid(7)) @db.Uuid
+  paymentId     String?          @db.Uuid
+  payment       ChitPayment?     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  installmentId String?          @db.Uuid
+  installment   ChitInstallment? @relation(fields: [installmentId], references: [id], onDelete: Cascade)
+  ticketId      String           @db.Uuid
+  kind          AllocationKind
+  amountPaise   BigInt
+  createdAt     DateTime         @default(now())
+
+  @@index([paymentId])
+  @@index([installmentId])
+  @@index([ticketId])
+}
+
+model ChitPayout {
+  id               String       @id @default(uuid(7)) @db.Uuid
+  cycleId          String       @unique @db.Uuid
+  cycle            ChitCycle    @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  groupId          String       @db.Uuid
+  ticketId         String       @db.Uuid
+  customerId       String       @db.Uuid
+  prizePaise       BigInt
+  /// The winner's own unpaid installments, settled from the prize
+  setOffPaise      BigInt       @default(0)
+  netPaise         BigInt
+  status           PayoutStatus @default(PENDING)
+  securityVerified Boolean      @default(false)
+  approvedById     String?      @db.Uuid
+  approvedAt       DateTime?
+  paidById         String?      @db.Uuid
+  paidAt           DateTime?
+  mode             PayMode?
+  reference        String?
+  note             String?
+  journalEntryId   String?      @db.Uuid
+  createdAt        DateTime     @default(now())
+}

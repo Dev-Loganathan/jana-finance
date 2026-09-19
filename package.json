@@ -1,0 +1,52 @@
+{
+  "name": "jana-finance",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @jana/shared build && pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r --if-present test",
+    "format": "prettier --write .",
+    "db:up": "docker compose up -d --wait db mailpit",
+    "db:migrate": "pnpm --filter @jana/api prisma:migrate",
+    "db:seed": "pnpm --filter @jana/api prisma:seed",
+    "docs:permissions": "pnpm --filter @jana/shared build && node scripts/gen-permissions-doc.js",
+    "lint:fix": "eslint . --fix",
+    "format:check": "prettier --check .",
+    "prepare": "husky",
+    "e2e": "pnpm --filter @jana/shared build && pnpm --filter @jana/api build && pnpm --filter @jana/e2e test",
+    "db:deploy": "pnpm --filter @jana/api prisma:deploy",
+    "setup": "bash scripts/setup.sh",
+    "db:seed:demo": "pnpm --filter @jana/api seed:demo"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.1",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.1",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.70.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,json,md,yml,yaml,css}": "prettier --write",
+    "*.{ts,tsx}": "eslint --fix"
+  },
+  "pnpm": {
+    "overrides": {
+      "multer": ">=2.3.0",
+      "lodash": ">=4.18.0",
+      "js-yaml": ">=4.3.2"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+node_modules
+dist
+build
+.env
+.env.local
+*.log
+.DS_Store
+coverage
+storage/
+.turbo
+playwright-report
+test-results
+storage-test
+storage-e2e
+e2e/screens
