@@ -6,10 +6,12 @@ build
 *.log
 .DS_Store
 coverage
-storage/
+# uploaded files (anchored: a bare `storage/` also hid the apps/api/src/storage source folder)
+/storage/
+/apps/api/storage/
 .turbo
 playwright-report
 test-results
-storage-test
+/apps/api/storage-test/
 storage-e2e
 e2e/screens
