@@ -5,6 +5,7 @@ services:
     name: jana-finance
     runtime: docker
     plan: free
+    region: singapore # same region as the Neon database: every query is a network round trip
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:

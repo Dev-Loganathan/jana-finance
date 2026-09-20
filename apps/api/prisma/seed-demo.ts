@@ -19,7 +19,7 @@ import type { AuthUser, ReqCtx } from "../src/common/decorators";
  *   pnpm --filter @jana/api seed:demo
  */
 env(); // load .env before Prisma reads DATABASE_URL
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ transactionOptions: { maxWait: 15_000, timeout: 120_000 } });
 const DEMO_DOMAIN = "@demo.jana";
 export const DEMO_STAFF_PASSWORD = "Demo!Passw0rd#1";
 
