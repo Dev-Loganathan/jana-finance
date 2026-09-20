@@ -17,7 +17,7 @@ const png = (name: string) => ({ name, mimeType: "image/png", buffer: PNG });
 async function signIn(page: Page, email: string, password: string, totpSecret?: string) {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   if (totpSecret) {
     await page.getByLabel("Authenticator code").fill(authenticator.generate(totpSecret));
