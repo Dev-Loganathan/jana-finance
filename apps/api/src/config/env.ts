@@ -5,6 +5,8 @@ const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().url(),
   API_PORT: z.coerce.number().default(3000),
+  // Hosts such as Render tell the app which port to bind through PORT; it wins over API_PORT.
+  PORT: z.coerce.number().optional(),
   WEB_ORIGIN: z.string().url().default("http://localhost:5173"),
   JWT_ACCESS_SECRET: z.string().min(16),
   ACCESS_TOKEN_TTL: z.string().default("15m"),

@@ -9,7 +9,7 @@ import { env } from "./config/env";
 async function bootstrap() {
   const app = await createApp({ prefix: "api" });
   serveWebApp(app);
-  await app.listen(env().API_PORT, "0.0.0.0");
+  await app.listen(env().PORT ?? env().API_PORT, "0.0.0.0");
 }
 
 /** When WEB_DIST_DIR points at the built web app, serve it from the same address as the API (no CORS, cookies just work). */
