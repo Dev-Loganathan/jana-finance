@@ -694,3 +694,36 @@ model ChitPayout {
   journalEntryId   String?      @db.Uuid
   createdAt        DateTime     @default(now())
 }
+
+// ===================== Bulk import =====================
+
+enum ImportBatchStatus {
+  VALIDATED
+  IMPORTING
+  IMPORTED
+  DISCARDED
+  EXPIRED
+}
+
+/// An uploaded spreadsheet that has been checked but not (fully) imported. Rows hold ID and bank numbers, so they are
+/// kept encrypted, only for 24 hours, and cleared as soon as the batch is imported or discarded.
+model ImportBatch {
+  id            String            @id @default(uuid(7)) @db.Uuid
+  createdById   String            @db.Uuid
+  fileName      String
+  status        ImportBatchStatus @default(VALIDATED)
+  totalRows     Int
+  readyRows     Int
+  errorRows     Int
+  duplicateRows Int
+  importedRows  Int               @default(0)
+  /// AES-256-GCM encrypted JSON of the rows. Null once cleared.
+  dataEnc       String?
+  createdCodes  String[]
+  expiresAt     DateTime
+  createdAt     DateTime          @default(now())
+  importedAt    DateTime?
+
+  @@index([createdById, createdAt])
+  @@index([expiresAt])
+}

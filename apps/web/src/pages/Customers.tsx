@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/form";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useToast } from "@/components/ui/toast";
 import { Avatar, CibilScore, KycBadge, RiskBadge, WatchBadge } from "@/features/customers/badges";
-import { ImportDialog } from "@/features/customers/ImportDialog";
 import type { CustomerListItem } from "@/features/customers/types";
 
 const FILTERS = [
@@ -54,7 +53,6 @@ export default function Customers() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => (setQ(search), setPage(1)), 300);
@@ -144,7 +142,16 @@ export default function Customers() {
         enableSorting: false,
         cell: ({ row: { original: c } }) => <KycBadge status={c.kycStatus} />,
       },
-      { accessorKey: "status", header: "Status", cell: ({ getValue }) => <StatusBadge status={getValue<string>()} /> },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row: { original: c } }) =>
+          c.status === "DRAFT" && c.completedSteps.length === 6 && !c.consentGiven ? (
+            <StatusBadge tone="warning">Awaiting consent</StatusBadge>
+          ) : (
+            <StatusBadge status={c.status} />
+          ),
+      },
       {
         id: "actions",
         header: () => <span className="sr-only">Actions</span>,
@@ -199,8 +206,8 @@ export default function Customers() {
         </div>
         <div className="flex flex-wrap gap-2">
           <PermissionGate permission="customer:import">
-            <Button variant="secondary" onClick={() => setImporting(true)}>
-              <Upload className="h-4 w-4" aria-hidden /> Import
+            <Button variant="secondary" onClick={() => navigate("/customers/import")}>
+              <Upload className="h-4 w-4" aria-hidden /> Bulk upload
             </Button>
           </PermissionGate>
           <PermissionGate permission="customer:export">
@@ -292,7 +299,6 @@ export default function Customers() {
           emptyDescription={tab === "all" && !q ? "Add your first customer to get started." : undefined}
         />
       </div>
-      {importing && <ImportDialog open onOpenChange={setImporting} />}
     </div>
   );
 }

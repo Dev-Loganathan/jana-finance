@@ -149,6 +149,7 @@ export class CustomersService {
           status: c.status,
           kycStatus: c.kycStatus,
           watchStatus: c.watchStatus,
+          consentGiven: !!c.consentAt,
           tags: c.tags,
           completedSteps: c.completedSteps,
           updatedAt: c.updatedAt,

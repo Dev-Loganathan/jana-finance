@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -39,14 +38,12 @@ import { ZodPipe } from "../common/zod.pipe";
 import { StorageService } from "../storage/storage.service";
 import { CustomersService } from "./customers.service";
 import { KycService, MAX_FILE_BYTES } from "./kyc.service";
-import { ImportService, MAX_IMPORT_BYTES } from "./import.service";
 
 @Controller("customers")
 export class CustomersController {
   constructor(
     private customers: CustomersService,
     private kyc: KycService,
-    private importer: ImportService,
   ) {}
 
   @Get("stats")
@@ -76,31 +73,6 @@ export class CustomersController {
       "Cache-Control": "no-store",
     });
     res.send("\uFEFF" + csv);
-  }
-
-  @Get("import/template")
-  @RequirePermissions("customer:import")
-  importTemplate(@Res() res: Response) {
-    res.set({
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": 'attachment; filename="customer-import-template.csv"',
-    });
-    res.send(this.importer.template());
-  }
-
-  /** Imports customers as drafts. Send dryRun=true to get the validation report without saving anything. */
-  @Post("import")
-  @HttpCode(200)
-  @RequirePermissions("customer:import", "customer:create")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_IMPORT_BYTES, files: 1 } }))
-  import(
-    @CurrentUser() actor: AuthUser,
-    @UploadedFile() file: Express.Multer.File | undefined,
-    @Body("dryRun") dryRun: string | undefined,
-    @Ctx() ctx: ReqCtx,
-  ) {
-    if (!file) throw new BadRequestException({ code: "NO_FILE", message: "Attach a CSV file" });
-    return this.importer.run(actor, file.buffer, dryRun !== "false", ctx);
   }
 
   @Get()

@@ -16,6 +16,7 @@ export interface CustomerListItem {
   status: CustomerStatus;
   kycStatus: KycStatus;
   watchStatus: "NONE" | "WATCHLIST" | "BLACKLIST";
+  consentGiven: boolean;
   tags: string[];
   completedSteps: WizardStep[];
   updatedAt: string;

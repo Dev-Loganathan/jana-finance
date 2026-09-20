@@ -9,8 +9,6 @@ const ANY_ID = "00000000-0000-4000-8000-000000000000";
 const rnd = (n: number) => Array.from(randomBytes(n), (b) => b % 10).join("");
 const word = () => randomBytes(5).toString("hex");
 const phone = () => `9${rnd(9)}`;
-const letters = () => Array.from(randomBytes(5), (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ"[b % 24]).join("");
-const pan = () => `${letters()}${rnd(4)}${letters()[0]}`;
 const aadhaar = () => verhoeffAppend(`${2 + (randomBytes(1)[0]! % 8)}${rnd(10)}`);
 const json = (v: unknown) => JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
 
@@ -75,8 +73,6 @@ describe("customer extras", () => {
     const endpoints: { method: "get" | "post" | "patch"; path: string }[] = [
       { method: "get", path: "/customers/follow-ups" },
       { method: "get", path: "/customers/export" },
-      { method: "get", path: "/customers/import/template" },
-      { method: "post", path: "/customers/import" },
       { method: "get", path: `/customers/${ANY_ID}/notes` },
       { method: "post", path: `/customers/${ANY_ID}/notes` },
       { method: "post", path: `/customers/${ANY_ID}/notes/${ANY_ID}/complete` },
@@ -100,11 +96,10 @@ describe("customer extras", () => {
       });
     });
 
-    it("plain staff can add notes but cannot export, import or blacklist", async () => {
+    it("plain staff can add notes but cannot export or blacklist", async () => {
       const id = await makeCustomer();
       expect((await http().post(`/customers/${id}/notes`).set(staffH).send({ body: "called" })).status).toBe(201);
       expect((await http().get("/customers/export").set(staffH)).status).toBe(403);
-      expect((await http().post("/customers/import").set(staffH)).status).toBe(403);
       expect(
         (
           await http()
@@ -262,105 +257,6 @@ describe("customer extras", () => {
         where: { action: "customer.export", after: { path: ["filters", "tag"], equals: tag } },
       });
       expect(json(log.after)).toContain('"count":1');
-    });
-  });
-
-  describe("import", () => {
-    const upload = (csv: string, dryRun?: boolean) => {
-      const req = http().post("/customers/import").set(adminH).attach("file", Buffer.from(csv), "customers.csv");
-      return dryRun === undefined ? req : req.field("dryRun", String(dryRun));
-    };
-    const HEADER =
-      "firstName,lastName,gender,dob,phone,email,state,district,pincode,aadhaar,pan,occupationType,monthlyIncome,cibilScore";
-
-    it("serves a template", async () => {
-      const res = await http().get("/customers/import/template").set(adminH);
-      expect(res.status).toBe(200);
-      expect(res.text).toContain("firstName");
-    });
-
-    it("dry-run reports every row and writes nothing", async () => {
-      const [pOk, pBad] = [phone(), phone()];
-      const csv = [
-        HEADER,
-        `Asha,${word()},FEMALE,15/05/1990,${pOk},asha@x.com,Tamil Nadu,Kanchipuram,631501,${aadhaar()},${pan()},SALARIED,35000,720`,
-        `Bad,Row,MALE,1990-13-45,${pBad},,,,12345,123456789012,NOTAPAN,,abc,950`,
-      ].join("\n");
-      const before = await prisma.customer.count();
-      const res = await upload(csv, true);
-      expect(res.status).toBe(200);
-      expect(res.body).toMatchObject({ dryRun: true, total: 2, ok: 1, errors: 1, created: 0 });
-      expect(res.body.rows[0]).toMatchObject({ row: 2, status: "ok" });
-      const bad = res.body.rows[1];
-      expect(bad.status).toBe("error");
-      expect(bad.messages.join(" ")).toMatch(/dob/);
-      expect(bad.messages.join(" ")).toMatch(/pincode/);
-      expect(bad.messages.join(" ")).toMatch(/aadhaar/);
-      expect(bad.messages.join(" ")).toMatch(/pan/);
-      expect(bad.messages.join(" ")).toMatch(/monthlyIncome/);
-      expect(bad.messages.join(" ")).toMatch(/cibilScore/);
-      expect(await prisma.customer.count()).toBe(before);
-    });
-
-    it("defaults to a dry run unless dryRun=false is sent", async () => {
-      const csv = [HEADER, `Def,${word()},MALE,1990-01-01,${phone()},,,,,,,,,`].join("\n");
-      const before = await prisma.customer.count();
-      expect((await upload(csv)).body.created).toBe(0);
-      expect(await prisma.customer.count()).toBe(before);
-    });
-
-    it("imports valid rows as drafts (never active), with encrypted IDs, and flags duplicates", async () => {
-      const existingPhone = phone();
-      await makeCustomer({ phoneNo: existingPhone });
-      const [p1, p2] = [phone(), phone()];
-      const a1 = aadhaar();
-      const name = `Imp${word()}`;
-      const csv = [
-        HEADER,
-        `${name},One,MALE,1985-03-04,${p1},,Tamil Nadu,Vellore,632001,${a1},${pan()},BUSINESS,50000,690`,
-        `${name},Two,FEMALE,20/11/1992,${p2},,Tamil Nadu,Vellore,632002,,,SALARIED,,`,
-        `Dup,Phone,MALE,1980-01-01,${existingPhone},,,,,,,,,`,
-        `Dup,InFile,MALE,1981-01-01,${p1},,,,,,,,,`,
-      ].join("\r\n");
-
-      const res = await upload(csv, false);
-      expect(res.status).toBe(200);
-      expect(res.body).toMatchObject({ dryRun: false, ok: 2, duplicates: 2, errors: 0, created: 2 });
-      expect(res.body.rows[2].messages.join(" ")).toContain("Same mobile number");
-      expect(res.body.rows[3].messages.join(" ")).toContain("phone repeated in this file");
-
-      const made = await prisma.customer.findMany({
-        where: { firstName: name },
-        include: { documents: true },
-        orderBy: { lastName: "asc" },
-      });
-      expect(made.map((c) => c.status)).toEqual(["DRAFT", "DRAFT"]);
-      expect(made[0]).toMatchObject({ district: "Vellore", cibilScore: 690, occupationType: "BUSINESS" });
-      expect(Number(made[0]!.monthlyIncomePaise)).toBe(50_000_00);
-      expect(made[1]!.dob?.toISOString().slice(0, 10)).toBe("1992-11-20"); // DD/MM/YYYY understood
-      expect(json(made[0]!.documents)).not.toContain(a1);
-      expect(made[0]!.documents.find((d) => d.type === "AADHAAR")!.numberEnc).toMatch(/^v1\./);
-      expect(made[0]!.consentAt).toBeNull(); // consent is never faked
-
-      const audit = await prisma.auditLog.findFirstOrThrow({
-        where: { action: "customer.import" },
-        orderBy: { id: "desc" },
-      });
-      expect(audit.after).toMatchObject({ created: 2, duplicates: 2 });
-    });
-
-    it("rejects files with missing columns, no rows, or no file, and ignores unknown columns", async () => {
-      expect((await upload("name,mobile\nA,9876543210\n")).body.code).toBe("MISSING_COLUMNS");
-      expect((await upload("firstName,phone\n")).body.code).toBe("EMPTY_FILE");
-      expect((await http().post("/customers/import").set(adminH)).body.code).toBe("NO_FILE");
-      const res = await upload(`firstName,phone,favouriteColour\nZed,${phone()},blue\n`, true);
-      expect(res.body.ignoredColumns).toEqual(["favouriteColour"]);
-      expect(res.body.ok).toBe(1);
-    });
-
-    it("rejects oversize files", async () => {
-      const big = `firstName,phone\n${"A,9876543210\n".repeat(200_000)}`;
-      expect((await upload(big, true)).status).toBe(413);
     });
   });
 });

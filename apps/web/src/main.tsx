@@ -8,6 +8,7 @@ import { ToastProvider } from "@/components/ui/toast";
 import AppShell from "@/layouts/AppShell";
 import AcceptInvite from "@/pages/AcceptInvite";
 import AuditLog from "@/pages/AuditLog";
+import BulkImport from "@/pages/BulkImport";
 import ChitDetail from "@/pages/ChitDetail";
 import ChitNew from "@/pages/ChitNew";
 import Chits from "@/pages/Chits";
@@ -41,6 +42,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
                   <Route element={<RequirePermission anyOf={["customer:view"]} />}>
                     <Route path="/customers" element={<Customers />} />
                     <Route path="/customers/:id" element={<CustomerDetail />} />
+                  </Route>
+                  <Route element={<RequirePermission anyOf={["customer:import"]} />}>
+                    <Route path="/customers/import" element={<BulkImport />} />
                   </Route>
                   <Route element={<RequirePermission anyOf={["customer:edit"]} />}>
                     <Route path="/customers/:id/edit" element={<CustomerWizard />} />
