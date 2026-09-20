@@ -10,6 +10,8 @@ const STAFF_FINAL = "Staff!Final#Pass9";
 
 const AADHAAR = "234567890124"; // valid Verhoeff checksum
 const CUSTOMER = { first: "Vasundhara", last: "Kumari", phone: "9876512345" };
+// A verified, active customer from the demo data (the customer above ends up blacklisted by an earlier test)
+const BORROWER = { first: "Deepa", last: "Iyer" };
 // Minimal PNG header: the server decides file type from the bytes.
 const PNG = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(64, 7)]);
 const png = (name: string) => ({ name, mimeType: "image/png", buffer: PNG });
@@ -585,5 +587,122 @@ test.describe.serial("admin and staff journey", () => {
     // KPI tiles link through to the module
     await page.getByRole("link", { name: /Running chit groups/ }).click();
     await expect(page.getByRole("heading", { name: "Chit Funds" })).toBeVisible();
+  });
+
+  test("Loans: product, application, approval, security, payout, collect, pay off and close", async ({ page }) => {
+    await signIn(page, SUPER_EMAIL, NEW_PASSWORD, totpSecret);
+    await page.getByRole("link", { name: "Loans", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Loans", exact: true })).toBeVisible();
+
+    // The demo data has loans behind on interest, so the collector's list is not empty
+    await expect(page.getByRole("button", { name: /^Overdue \(\d+\)$/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Collect" }).first()).toBeVisible();
+    await expect(page.getByText("Interest overdue", { exact: true })).toBeVisible();
+
+    // A product: 1.5% a month, Rs 5,000 to Rs 5,00,000, 1% fee
+    await page.getByRole("link", { name: "Loan products" }).click();
+    await page.getByRole("button", { name: "New product" }).click();
+    await page.getByLabel(/^Name/).fill("E2E gold loan");
+    await page.getByLabel("Standard rate (% a month)").fill("1.5");
+    await page.getByLabel("Lowest rate allowed (%)").fill("1");
+    await page.getByLabel("Highest rate allowed (%)").fill("2");
+    await page.getByLabel("Smallest loan (₹)").fill("5000");
+    await page.getByLabel("Largest loan (₹)").fill("500000");
+    await page.getByLabel("Processing fee (% of loan)").fill("1");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByRole("row", { name: /E2E gold loan/ })).toContainText("1.5%");
+
+    // The application: the figures appear as soon as the form is filled in
+    await page.getByRole("link", { name: "Back to Loans" }).click();
+    await page.getByRole("link", { name: "New Loan" }).click();
+    await page.getByLabel("Search customers to add").fill(BORROWER.first);
+    await page.getByRole("button", { name: new RegExp(BORROWER.first) }).click();
+    await page.getByLabel("Product").selectOption({ label: "E2E gold loan" });
+    await page.getByLabel("Loan amount (₹)").fill("60000");
+    await expect(page.getByText("₹900.00", { exact: true })).toBeVisible(); // 1.5% of 60,000 each month
+    await expect(page.getByText("₹59,400.00", { exact: true })).toBeVisible(); // less the Rs 600 fee
+    await page.getByLabel("Purpose").fill("Shop stock");
+    await page.getByRole("button", { name: "Save application" }).click();
+    await expect(page.getByText("Waiting for approval").first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: `${BORROWER.first} ${BORROWER.last}` })).toBeVisible();
+
+    // Security is recorded before the money goes out
+    await page.getByRole("tab", { name: "Security" }).click();
+    await page.getByLabel("Description").fill("Gold chain 20 g");
+    await page.getByLabel("Estimated value (₹)").fill("90000");
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page.getByText("Gold chain 20 g")).toBeVisible();
+    await expect(page.getByText("Held by us")).toBeVisible();
+
+    // Approve, then pay out
+    await page.getByRole("button", { name: "Approve", exact: true }).click();
+    // This customer's income is low for the loan, so approving needs a reason (kept on the loan and in the audit log)
+    await expect(page.getByRole("dialog")).toContainText("exceed 50% of income");
+    await expect(page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true })).toBeDisabled();
+    await page.getByLabel(/^Why approve it anyway/).fill("Known customer, repaid two earlier loans");
+    await page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true }).click();
+    await expect(page.getByText("Approved, not paid out").first()).toBeVisible();
+    await page.getByRole("button", { name: "Pay out", exact: true }).click();
+    await expect(page.getByRole("dialog")).toContainText("59,400");
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: /^Pay out ₹/ })
+      .click();
+    await expect(page.getByText("Active", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Principal outstanding", { exact: true })).toBeVisible();
+
+    // The customer cannot hand security back while money is owed
+    await page.getByRole("tab", { name: "Security" }).click();
+    await expect(page.getByRole("button", { name: "Hand back to customer" })).toHaveCount(0);
+
+    // Collect a Rs 10,000 principal repayment: it is one receipt and the balance drops
+    await page.getByRole("button", { name: "Collect payment" }).click();
+    await page.getByLabel("Principal repaid (₹)").fill("10000");
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: /^Record ₹10,000/ })
+      .click();
+    await expect(page.getByRole("dialog")).toContainText("Principal repaid");
+    await expect(page.getByRole("dialog")).toContainText("₹50,000.00");
+    await page.getByRole("dialog").getByRole("button", { name: "Done" }).click();
+    await page.getByRole("tab", { name: "Payments" }).click();
+    await expect(page.getByRole("row", { name: /RCP/ })).toBeVisible();
+
+    // Too much interest is refused before it is sent
+    await page.getByRole("button", { name: "Collect payment" }).click();
+    await page.getByLabel("Interest received (₹)").fill("5000");
+    await expect(page.getByRole("alert")).toContainText("Interest cannot be more than");
+    await expect(page.getByRole("dialog").getByRole("button", { name: /^Record/ })).toBeDisabled();
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+
+    // Pay off and close
+    await page.getByRole("button", { name: "Pay off and close" }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: /^Record ₹50,000/ })
+      .click();
+    await expect(page.getByRole("dialog")).toContainText("this loan is now closed");
+    await page.getByRole("dialog").getByRole("button", { name: "Done" }).click();
+    await expect(page.getByText("Closed", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Collect payment" })).toHaveCount(0);
+
+    // Now the security can go back
+    await page.getByRole("tab", { name: "Security" }).click();
+    await page.getByRole("button", { name: "Hand back to customer" }).click();
+    await expect(page.getByText(/Handed back/)).toBeVisible();
+
+    // It shows on the customer's profile, and the dashboard has a loans section
+    await page.getByRole("tab", { name: "Overview" }).click();
+    await page
+      .getByRole("link", { name: `${BORROWER.first} ${BORROWER.last}` })
+      .first()
+      .click();
+    await expect(page.getByRole("heading", { name: "Loans", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: /LN\d{6}/ }).first()).toBeVisible();
+    await page.getByRole("link", { name: "Dashboard" }).click();
+    await expect(page.getByRole("heading", { name: "Loans furthest behind" })).toBeVisible();
+    await expect(
+      page.getByRole("img", { name: "Loan interest collected by month for the last six months" }),
+    ).toBeVisible();
   });
 });

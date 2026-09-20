@@ -4,6 +4,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { ACCOUNTS, LedgerService } from "../ledger/ledger.service";
 import type { AuthUser } from "../common/decorators";
 import { num, today } from "../chits/chit.util";
+import { LoansService } from "../loans/loans.service";
 
 /** Days-past-due buckets from the brief. Overdue means at least one day late. */
 export const DPD_BUCKETS = ["0-30", "31-60", "61-90", "90+"] as const;
@@ -23,6 +24,7 @@ export class DashboardService {
   constructor(
     private prisma: PrismaService,
     private ledger: LedgerService,
+    private loanService: LoansService,
   ) {}
 
   /**
@@ -41,6 +43,7 @@ export class DashboardService {
       jobs.push(this.collections(now).then((v) => void (out.collections = v)));
       jobs.push(this.overdue(now).then((v) => void (out.overdue = v)));
     }
+    if (can("loan:view")) jobs.push(this.loans(now).then((v) => void (out.loans = v)));
     if (can("customer:view")) jobs.push(this.followUps(now).then((v) => void (out.followUps = v)));
     if (can("report:view")) {
       jobs.push(this.cash().then((v) => void (out.cash = v)));
@@ -48,6 +51,66 @@ export class DashboardService {
     }
     await Promise.all(jobs);
     return out;
+  }
+
+  /** Loans: what is out, what is owed on it, what came in, and who is furthest behind. */
+  private async loans(now: string) {
+    const monthStart = firstOfMonth(now);
+    const from = monthsBack(now, 5);
+    const real = { status: "POSTED" as const };
+    const day = (d: string) => new Date(`${d}T00:00:00Z`);
+    const [stats, behind, todaySum, monthSum, series, upcoming] = await Promise.all([
+      this.loanService.stats(),
+      this.loanService.interestDue({ bucket: "overdue", asOf: now }, 1, 5),
+      this.prisma.loanPayment.aggregate({
+        where: { ...real, paidOn: day(now) },
+        _sum: { interestPaise: true, principalPaise: true },
+        _count: true,
+      }),
+      this.prisma.loanPayment.aggregate({
+        where: { ...real, paidOn: { gte: day(monthStart), lte: day(now) } },
+        _sum: { interestPaise: true, principalPaise: true },
+        _count: true,
+      }),
+      this.prisma.$queryRaw<{ m: string; amt: bigint }[]>`
+        SELECT to_char("paidOn", 'YYYY-MM') AS m, SUM("interestPaise")::bigint AS amt FROM "LoanPayment"
+        WHERE status = 'POSTED'::"PaymentStatus" AND "paidOn" >= ${from}::date AND "paidOn" <= ${now}::date GROUP BY 1`,
+      this.loanService.interestDue({ bucket: "week", asOf: now }, 1, 1),
+    ]);
+    const byMonth = new Map(series.map((r) => [r.m, Number(r.amt)]));
+    return {
+      active: stats.active,
+      waitingApproval: stats.applied,
+      approvedNotPaid: stats.approved,
+      principalOutstandingPaise: stats.principalOutstandingPaise,
+      interestDuePaise: stats.interestDuePaise,
+      interestOverduePaise: stats.interestOverduePaise,
+      overdueLoans: stats.overdueLoans,
+      dueThisWeek: upcoming.total,
+      today: {
+        interestPaise: num(todaySum._sum.interestPaise),
+        principalPaise: num(todaySum._sum.principalPaise),
+        count: todaySum._count,
+      },
+      month: {
+        interestPaise: num(monthSum._sum.interestPaise),
+        principalPaise: num(monthSum._sum.principalPaise),
+        count: monthSum._count,
+      },
+      // Interest collected, six points oldest first, so a quiet month shows as zero
+      months: Array.from({ length: 6 }, (_, i) => {
+        const m = month(monthsBack(now, 5 - i));
+        return { month: m, paise: byMonth.get(m) ?? 0 };
+      }),
+      topOverdue: behind.items.map((l) => ({
+        id: l.id,
+        code: l.code,
+        customerName: l.customer?.name ?? "",
+        phone: l.customer?.phone ?? null,
+        overduePaise: l.interestOverduePaise ?? 0,
+        overdueDays: l.overdueDays,
+      })),
+    };
   }
 
   private async customers() {

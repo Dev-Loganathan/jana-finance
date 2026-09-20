@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { PrismaClient } from "@prisma/client";
-import { ALL_PERMISSIONS, verhoeffAppend, type WizardStep } from "@jana/shared";
+import { ALL_PERMISSIONS, addDays, addMonths, verhoeffAppend, type WizardStep } from "@jana/shared";
 import { AppModule } from "../src/app.module";
 import { CustomersService } from "../src/customers/customers.service";
 import { KycService } from "../src/customers/kyc.service";
@@ -10,6 +10,8 @@ import { ChitCollectionService } from "../src/chits/chit-collection.service";
 import { ChitService } from "../src/chits/chit.service";
 import { today } from "../src/chits/chit.util";
 import { env } from "../src/config/env";
+import { LoanPaymentsService } from "../src/loans/loan-payments.service";
+import { LoansService } from "../src/loans/loans.service";
 import type { AuthUser, ReqCtx } from "../src/common/decorators";
 
 /**
@@ -262,10 +264,155 @@ async function main() {
     }
 
     await seedChits(actor, ctx, app.get(ChitService), app.get(ChitCollectionService));
+    await seedLoans(actor, ctx, app.get(LoansService), app.get(LoanPaymentsService));
   } finally {
     await app.close();
     await prisma.$disconnect();
   }
+}
+
+/**
+ * Six loans in different states, dated relative to today so the demo always looks current: one up to date, one behind
+ * on interest, one with a part repayment, one closed, one waiting for approval and one approved but not yet paid out.
+ */
+async function seedLoans(actor: AuthUser, ctx: ReqCtx, loans: LoansService, pays: LoanPaymentsService) {
+  if ((await prisma.loanProduct.count()) > 0) {
+    console.log("Loan products already present; skipping loans.");
+    return;
+  }
+  const people = await prisma.customer.findMany({
+    where: { status: "ACTIVE", watchStatus: "NONE", kycStatus: "VERIFIED", email: { endsWith: DEMO_DOMAIN } },
+    orderBy: { code: "asc" },
+    take: 8,
+  });
+  if (people.length < 6) {
+    console.log("Not enough verified demo customers for loans; skipping.");
+    return;
+  }
+  const t = today();
+  const ago = (days: number) => addDays(t, -days);
+  const personal = await loans.createProduct(
+    {
+      name: "Personal loan",
+      monthlyRateBp: 200,
+      minRateBp: 100,
+      maxRateBp: 300,
+      minAmountPaise: 10_000_00,
+      maxAmountPaise: 5_00_000_00,
+      processingFeeBp: 100,
+      processingFeeFlatPaise: 0,
+      active: true,
+      notes: "Standard 2% a month, fee 1%",
+    },
+    ctx,
+  );
+  const gold = await loans.createProduct(
+    {
+      name: "Gold loan",
+      monthlyRateBp: 150,
+      minRateBp: 100,
+      maxRateBp: 200,
+      minAmountPaise: 5_000_00,
+      maxAmountPaise: 10_00_000_00,
+      processingFeeBp: 0,
+      processingFeeFlatPaise: 0,
+      active: true,
+      notes: "Against gold, 1.5% a month",
+    },
+    ctx,
+  );
+
+  const modes = ["CASH", "UPI", "CASH", "BANK_TRANSFER"] as const;
+  let n = 0;
+  async function apply(i: number, productId: string, principalPaise: number, rateBp: number, purpose: string) {
+    const l = await loans.create(
+      { customerId: people[i]!.id, productId, principalPaise, monthlyRateBp: rateBp, purpose },
+      actor,
+      ctx,
+    );
+    return l;
+  }
+  async function lend(
+    i: number,
+    productId: string,
+    principalPaise: number,
+    rateBp: number,
+    purpose: string,
+    daysAgo: number,
+  ) {
+    const l = await apply(i, productId, principalPaise, rateBp, purpose);
+    await loans.approve(l.id, l.warnings.length ? "Demo: known customer" : undefined, actor, ctx);
+    await loans.disburse(l.id, { mode: "CASH", disbursedOn: ago(daysAgo) }, actor, ctx);
+    return { id: l.id, start: ago(daysAgo) };
+  }
+  /** Pays the interest due on the given month's due date, and optionally some principal with it. */
+  async function collect(loanId: string, on: string, principalPaise = 0) {
+    const v = await loans.get(loanId, on);
+    const interestPaise = v.position?.interestDuePaise ?? 0;
+    if (interestPaise + principalPaise <= 0) return;
+    await pays.receive(
+      loanId,
+      { interestPaise, principalPaise, mode: modes[n++ % modes.length]!, paidOn: on },
+      `demo-loan-${loanId}-${on}`,
+      actor,
+      ctx,
+    );
+  }
+  const dueDates = (start: string) => {
+    const out: string[] = [];
+    for (let k = 1; addMonths(start, k) <= t; k++) out.push(addMonths(start, k));
+    return out;
+  };
+
+  // A: up to date
+  const a = await lend(0, personal.id, 1_00_000_00, 200, "Shop stock", 100);
+  for (const d of dueDates(a.start)) await collect(a.id, d);
+  await loans.addCollateral(
+    a.id,
+    { kind: "GOLD", description: "Gold ring 8 g", estimatedValuePaise: 55_000_00 },
+    actor,
+    ctx,
+  );
+
+  // B: only the first month paid, so it is behind
+  const b = await lend(1, personal.id, 50_000_00, 300, "Medical expense", 100);
+  const bDue = dueDates(b.start);
+  if (bDue[0]) await collect(b.id, bDue[0]);
+  await loans.addCollateral(
+    b.id,
+    { kind: "VEHICLE", description: "Two-wheeler RC book", estimatedValuePaise: 40_000_00 },
+    actor,
+    ctx,
+  );
+
+  // C: gold loan, on time, with Rs 50,000 of principal repaid along with the third month's interest
+  const c = await lend(2, gold.id, 2_00_000_00, 150, "Business", 130);
+  for (const [i, d] of dueDates(c.start).entries()) await collect(c.id, d, i === 2 ? 50_000_00 : 0);
+  await loans.addCollateral(
+    c.id,
+    { kind: "GOLD", description: "Gold chain 32 g, 22 carat", estimatedValuePaise: 2_40_000_00 },
+    actor,
+    ctx,
+  );
+
+  // D: closed
+  const d = await lend(3, personal.id, 30_000_00, 200, "School fees", 120);
+  for (const due of dueDates(d.start)) await collect(d.id, due);
+  const closeOn = ago(15);
+  const q = await pays.payoff(d.id, closeOn);
+  await pays.receive(
+    d.id,
+    { interestPaise: q.interestPaise, principalPaise: q.principalPaise, mode: "CASH", paidOn: closeOn },
+    `demo-loan-${d.id}-close`,
+    actor,
+    ctx,
+  );
+
+  // E waiting for approval, F approved but not paid out
+  await apply(4, personal.id, 25_000_00, 200, "Festival expenses");
+  const f = await apply(5, personal.id, 75_000_00, 200, "Home repair");
+  await loans.approve(f.id, f.warnings.length ? "Demo: known customer" : undefined, actor, ctx);
+  console.log("Created demo loans: 2 products and 6 loans in different states.");
 }
 
 /** Two running chit groups with several months of history: collections, a member in arrears, and payouts at each stage. */

@@ -11,9 +11,12 @@ import type { CustomerListItem } from "@/features/customers/types";
 export function CustomerPicker({
   onPick,
   excludeIds = [],
+  isBlocked = (c) => c.watchStatus === "BLACKLIST" || (c.kycStatus !== "COMPLETE" && c.kycStatus !== "VERIFIED"),
 }: {
   onPick: (c: CustomerListItem) => void;
   excludeIds?: string[];
+  /** Customers that are shown but cannot be picked. Chits need finished KYC; loans only refuse the blacklisted. */
+  isBlocked?: (c: CustomerListItem) => boolean;
 }) {
   const [text, setText] = useState("");
   const [q, setQ] = useState("");
@@ -46,7 +49,7 @@ export function CustomerPicker({
       {q.length >= 2 && (
         <ul className="max-h-64 divide-y divide-border overflow-auto rounded-md border border-border">
           {res.data?.items.map((c) => {
-            const blocked = c.watchStatus === "BLACKLIST" || (c.kycStatus !== "COMPLETE" && c.kycStatus !== "VERIFIED");
+            const blocked = isBlocked(c);
             return (
               <li key={c.id}>
                 <button

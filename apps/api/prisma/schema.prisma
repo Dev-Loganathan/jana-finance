@@ -286,6 +286,7 @@ model Customer {
   bank       BankAccount[]
   references CustomerReference[]
   notes      CustomerNote[]
+  Loan       Loan[]
 
   @@index([status, deletedAt])
   @@index([phone])
@@ -345,23 +346,27 @@ model KycDocument {
 
 /// Uploaded file (KYC image/PDF, photo, signature). Never publicly served: access is via short-lived signed URLs.
 model CustomerFile {
-  id           String       @id @default(uuid(7)) @db.Uuid
-  customerId   String       @db.Uuid
-  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  documentId   String?      @db.Uuid
-  document     KycDocument? @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  id           String          @id @default(uuid(7)) @db.Uuid
+  customerId   String          @db.Uuid
+  customer     Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  documentId   String?         @db.Uuid
+  document     KycDocument?    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  /// Set for photos of loan collateral instead of KYC documents
+  collateralId String?         @db.Uuid
+  collateral   LoanCollateral? @relation(fields: [collateralId], references: [id], onDelete: Cascade)
   /// e.g. "front", "back", "selfie"
-  label        String       @default("")
-  storageKey   String       @unique
+  label        String          @default("")
+  storageKey   String          @unique
   mimeType     String
   sizeBytes    Int
   sha256       String
   originalName String
-  uploadedById String       @db.Uuid
-  createdAt    DateTime     @default(now())
+  uploadedById String          @db.Uuid
+  createdAt    DateTime        @default(now())
 
   @@index([customerId])
   @@index([documentId])
+  @@index([collateralId])
 }
 
 /// Notes, call/visit logs and follow-up tasks (a note with `followUpOn` is a task until `completedAt` is set).
@@ -726,4 +731,152 @@ model ImportBatch {
 
   @@index([createdById, createdAt])
   @@index([expiresAt])
+}
+
+// ===================== Loans =====================
+// Fixed monthly rate on the outstanding principal, interest due every month, principal repaid any time.
+// Interest is never stored as a running balance: it is worked out from the start date, the principal repayments and
+// the interest already paid per cycle, so a reversed or corrected payment can never leave a stale figure.
+
+enum LoanStatus {
+  APPLIED
+  APPROVED
+  ACTIVE
+  CLOSED
+  REJECTED
+  CANCELLED
+}
+
+enum CollateralKind {
+  GOLD
+  PROPERTY
+  VEHICLE
+  CHEQUE
+  PROMISSORY_NOTE
+  DOCUMENT
+  OTHER
+}
+
+enum CollateralStatus {
+  HELD
+  RELEASED
+}
+
+model LoanProduct {
+  id                     String   @id @default(uuid(7)) @db.Uuid
+  name                   String   @unique
+  /// Default rate offered, in basis points per month (200 = 2%)
+  monthlyRateBp          Int
+  minRateBp              Int
+  maxRateBp              Int
+  minAmountPaise         BigInt
+  maxAmountPaise         BigInt
+  processingFeeBp        Int      @default(0)
+  processingFeeFlatPaise BigInt   @default(0)
+  active                 Boolean  @default(true)
+  notes                  String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  loans                  Loan[]
+}
+
+model Loan {
+  id                 String           @id @default(uuid(7)) @db.Uuid
+  code               String           @unique
+  customerId         String           @db.Uuid
+  customer           Customer         @relation(fields: [customerId], references: [id])
+  productId          String           @db.Uuid
+  product            LoanProduct      @relation(fields: [productId], references: [id])
+  principalPaise     BigInt
+  /// Fixed for the life of the loan
+  monthlyRateBp      Int
+  termMonths         Int?
+  purpose            String?
+  processingFeePaise BigInt           @default(0)
+  status             LoanStatus       @default(APPLIED)
+  notes              String?
+  guarantorName      String?
+  guarantorPhone     String?
+  guarantorRelation  String?
+  /// Findings at the time of application, and the approver's reason for going ahead despite them
+  warnings           Json?
+  overrideReason     String?
+  appliedById        String           @db.Uuid
+  approvedById       String?          @db.Uuid
+  approvedAt         DateTime?
+  rejectedById       String?          @db.Uuid
+  rejectedAt         DateTime?
+  rejectionReason    String?
+  cancelledAt        DateTime?
+  /// Interest cycles are counted from this date
+  disbursedOn        DateTime?        @db.Date
+  disbursedById      String?          @db.Uuid
+  disbursedAt        DateTime?
+  disbursalMode      PayMode?
+  disbursalReference String?
+  disbursalJournalId String?          @db.Uuid
+  closedOn           DateTime?        @db.Date
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  collaterals        LoanCollateral[]
+  payments           LoanPayment[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([productId])
+}
+
+model LoanCollateral {
+  id                  String           @id @default(uuid(7)) @db.Uuid
+  loanId              String           @db.Uuid
+  loan                Loan             @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  kind                CollateralKind
+  description         String
+  estimatedValuePaise BigInt           @default(0)
+  reference           String?
+  status              CollateralStatus @default(HELD)
+  releasedAt          DateTime?
+  releaseNote         String?
+  addedById           String           @db.Uuid
+  createdAt           DateTime         @default(now())
+  files               CustomerFile[]
+
+  @@index([loanId])
+}
+
+model LoanPayment {
+  id             String                   @id @default(uuid(7)) @db.Uuid
+  receiptNo      String                   @unique
+  loanId         String                   @db.Uuid
+  loan           Loan                     @relation(fields: [loanId], references: [id])
+  amountPaise    BigInt
+  interestPaise  BigInt                   @default(0)
+  principalPaise BigInt                   @default(0)
+  mode           PayMode
+  reference      String?
+  paidOn         DateTime                 @db.Date
+  idempotencyKey String                   @unique
+  status         PaymentStatus            @default(POSTED)
+  reversedAt     DateTime?
+  reversalReason String?
+  journalEntryId String?                  @db.Uuid
+  receivedById   String                   @db.Uuid
+  createdAt      DateTime                 @default(now())
+  allocations    LoanInterestAllocation[]
+
+  @@index([loanId])
+  @@index([paidOn])
+}
+
+/// How much of a payment's interest went to which monthly cycle (1 = the first month after disbursement)
+model LoanInterestAllocation {
+  id          String      @id @default(uuid(7)) @db.Uuid
+  paymentId   String      @db.Uuid
+  payment     LoanPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  loanId      String      @db.Uuid
+  cycleSeq    Int
+  amountPaise BigInt
+
+  @@index([paymentId])
+  @@index([loanId])
 }

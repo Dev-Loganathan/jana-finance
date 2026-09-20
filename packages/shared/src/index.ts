@@ -4,3 +4,4 @@ export * from "./schemas";
 export * from "./customers";
 export * from "./chit";
 export * from "./bulk-import";
+export * from "./loan";

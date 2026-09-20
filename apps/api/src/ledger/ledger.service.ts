@@ -9,9 +9,11 @@ type Tx = Prisma.TransactionClient | PrismaService;
 export const ACCOUNTS = {
   CASH: "1000",
   BANK: "1100",
+  LOANS_RECEIVABLE: "1200",
   CHIT_PAYABLE: "2000",
   CAPITAL: "3000",
   CHIT_COMMISSION_INCOME: "4000",
+  INTEREST_INCOME: "4300",
   PENALTY_INCOME: "4100",
   FEE_INCOME: "4200",
   EXPENSES: "5000",
@@ -20,11 +22,13 @@ export const ACCOUNTS = {
 const DEFAULT_CHART: { code: string; name: string; type: AccountType }[] = [
   { code: "1000", name: "Cash in hand", type: "ASSET" },
   { code: "1100", name: "Bank", type: "ASSET" },
+  { code: "1200", name: "Loans receivable (principal)", type: "ASSET" },
   { code: "2000", name: "Chit subscribers' payable", type: "LIABILITY" },
   { code: "3000", name: "Owner's capital", type: "EQUITY" },
   { code: "4000", name: "Chit commission income", type: "INCOME" },
   { code: "4100", name: "Penalty income", type: "INCOME" },
   { code: "4200", name: "Fee income", type: "INCOME" },
+  { code: "4300", name: "Loan interest income", type: "INCOME" },
   { code: "5000", name: "Operating expenses", type: "EXPENSE" },
 ];
 

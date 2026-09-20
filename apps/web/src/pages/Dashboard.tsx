@@ -71,8 +71,8 @@ export default function Dashboard() {
       </div>
     );
   }
-  const { customers: c, chits, collections, overdue, cash, staff, followUps } = d;
-  const nothing = !c && !chits && !collections;
+  const { customers: c, chits, collections, overdue, cash, staff, followUps, loans } = d;
+  const nothing = !c && !chits && !collections && !loans;
 
   return (
     <div className="space-y-6">
@@ -128,6 +128,79 @@ export default function Dashboard() {
             />
           )}
         </section>
+      )}
+
+      {loans && (
+        <>
+          <section aria-label="Loans" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatTile
+              label="Loan principal outstanding"
+              value={inrCompact(loans.principalOutstandingPaise)}
+              hint={`${loans.active} active loan${loans.active === 1 ? "" : "s"}${loans.waitingApproval ? ` · ${loans.waitingApproval} waiting for approval` : ""}`}
+              href="/loans"
+            />
+            <StatTile
+              label="Interest overdue"
+              tone={loans.interestOverduePaise > 0 ? "danger" : undefined}
+              value={inrCompact(loans.interestOverduePaise)}
+              hint={`${loans.overdueLoans} loan${loans.overdueLoans === 1 ? "" : "s"} behind`}
+              href="/loans"
+            />
+            <StatTile
+              label="Interest received this month"
+              value={inrCompact(loans.month.interestPaise)}
+              hint={`Today ${inrCompact(loans.today.interestPaise)} · ${loans.month.count} receipt${loans.month.count === 1 ? "" : "s"}`}
+            />
+            <StatTile
+              label="Interest due in 7 days"
+              value={String(loans.dueThisWeek)}
+              hint={`${inrCompact(loans.interestDuePaise)} due right now`}
+              href="/loans"
+            />
+          </section>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Panel
+              title="Loan interest collected, last 6 months"
+              subtitle="Interest received on loans (principal repaid is not counted)"
+            >
+              <ColumnChart data={loans.months} ariaLabel="Loan interest collected by month for the last six months" />
+            </Panel>
+            <Panel title="Loans furthest behind" subtitle="Longest overdue interest first">
+              {loans.topOverdue.length ? (
+                <div className="-mx-4 overflow-x-auto px-4">
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs text-fg-muted">
+                      <tr>
+                        <th className="py-1 font-medium">Customer</th>
+                        <th className="py-1 text-right font-medium">Days late</th>
+                        <th className="py-1 text-right font-medium">Overdue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loans.topOverdue.map((t) => (
+                        <tr key={t.id} className="border-t border-border">
+                          <td className="py-2">
+                            <Link to={`/loans/${t.id}`} className="font-medium hover:underline">
+                              {t.customerName}
+                            </Link>
+                            <span className="block text-xs text-fg-muted">
+                              {t.code}
+                              {t.phone ? ` · ${t.phone}` : ""}
+                            </span>
+                          </td>
+                          <td className="tabular py-2 text-right">{t.overdueDays}</td>
+                          <td className="tabular py-2 text-right font-medium">{inr(t.overduePaise)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <EmptyState title="No loan is behind on interest" description="Every finished month has been paid." />
+              )}
+            </Panel>
+          </div>
+        </>
       )}
 
       {(c || chits) && (

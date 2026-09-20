@@ -19,6 +19,10 @@ import Customers from "@/pages/Customers";
 import Dashboard from "@/pages/Dashboard";
 import DesignSystem from "@/pages/DesignSystem";
 import Login from "@/pages/Login";
+import LoanDetail from "@/pages/LoanDetail";
+import LoanNew from "@/pages/LoanNew";
+import LoanProducts from "@/pages/LoanProducts";
+import Loans from "@/pages/Loans";
 import UserManagement from "@/pages/UserManagement";
 import "./index.css";
 
@@ -56,6 +60,16 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
                   </Route>
                   <Route element={<RequirePermission anyOf={["chit:create"]} />}>
                     <Route path="/chits/new" element={<ChitNew />} />
+                  </Route>
+                  <Route element={<RequirePermission anyOf={["loan:view"]} />}>
+                    <Route path="/loans" element={<Loans />} />
+                    <Route path="/loans/:id" element={<LoanDetail />} />
+                  </Route>
+                  <Route element={<RequirePermission anyOf={["loan:create"]} />}>
+                    <Route path="/loans/new" element={<LoanNew />} />
+                  </Route>
+                  <Route element={<RequirePermission anyOf={["loan:edit"]} />}>
+                    <Route path="/loans/products" element={<LoanProducts />} />
                   </Route>
                   <Route element={<RequirePermission anyOf={["user:view", "role:view"]} />}>
                     <Route path="/user-management" element={<UserManagement />} />

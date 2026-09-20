@@ -42,6 +42,27 @@ export interface Dashboard {
       tickets: number;
     }[];
   };
+  loans?: {
+    active: number;
+    waitingApproval: number;
+    approvedNotPaid: number;
+    principalOutstandingPaise: number;
+    interestDuePaise: number;
+    interestOverduePaise: number;
+    overdueLoans: number;
+    dueThisWeek: number;
+    today: { interestPaise: number; principalPaise: number; count: number };
+    month: { interestPaise: number; principalPaise: number; count: number };
+    months: { month: string; paise: number }[];
+    topOverdue: {
+      id: string;
+      code: string;
+      customerName: string;
+      phone: string | null;
+      overduePaise: number;
+      overdueDays: number;
+    }[];
+  };
   cash?: { cashPaise: number; bankPaise: number; totalPaise: number; heldForMembersPaise: number };
   staff?: { collectionsThisMonth: { userId: string; name: string; paise: number; receipts: number }[] };
   followUps?: { dueToday: number; overdue: number };

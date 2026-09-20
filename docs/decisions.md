@@ -8,8 +8,8 @@ Status tags: **[built]** in the code today, **[decided]** agreed but not built y
 
 - **Name:** Jana Finance. Users: 3-4 staff, 100+ customers, scalable to several thousand.
 - **Chit model (default, until real rules are supplied):** auction chit. Winner bids a discount; foreman commission 5% of chit value; remaining discount is shared equally as dividend. All parameters are per-group configuration.
-- **Loan model (default):** flat, reducing balance, interest-only; 365-day basis; penalty is a percent per month on the overdue amount. All configurable per product.
-- **[open]** **Loan conventions** are defaults only until the owner supplies real rules (see Open decisions below).
+- **Loan model:** fixed monthly interest on the outstanding principal, paid every month, principal repaid any time (confirmed by the owner). See the Loans section below. The earlier flat / reducing-balance / interest-only defaults are not built.
+- **[open]** The owner has described the loan model (see Loans below). What is still open: penalty on late interest, weekly or daily collection loans, and any legal caps on the rate.
 - **Legal:** commission caps, max chit value and interest caps are configuration only. The business must confirm the rules for its state (Chit Funds Act, 1982; money-lending rules) with a legal advisor.
 
 ## Architecture
@@ -93,7 +93,7 @@ Status tags: **[built]** in the code today, **[decided]** agreed but not built y
 - **Definitions:** _Collected_ counts posted receipts by payment date and excludes reversed payments and prize set-offs (no money moved). _Overdue_ is any installment past its due date with a balance; days past due are counted from the due date and bucketed 0-30, 31-60, 61-90, 90+ (1 to 30 days late is the first bucket). _KYC pending_ is active customers not fully verified. _Upcoming auctions_ is each running group's next unheld month within 30 days, flagged "not held yet" if its date has passed. _Held for chit members_ is the ledger's chit-payable balance.
 - **Cash and bank** come from the ledger. There is no opening balance yet, so paying prizes in cash can show a negative cash figure; the tile says so. An opening-balance entry arrives with the accounting phase.
 - **Charts:** one series per chart in the accent colour, one-hue ordered bars for ageing, every chart with direct labels, hover/keyboard tooltips and a "View as table" toggle. The dashboard refreshes every minute.
-- **Not on the dashboard yet** (need modules that are not built): loans outstanding, interest earned, disbursements, day-end cash variance, scheduled owner emails.
+- **Loans on the dashboard:** principal outstanding, interest overdue and due in 7 days, interest received this month and today, a six-month interest chart, and the loans furthest behind. **Not on the dashboard yet:** day-end cash variance, scheduled owner emails.
 
 ## Authentication and sessions
 
@@ -123,7 +123,7 @@ Status tags: **[built]** in the code today, **[decided]** agreed but not built y
 
 ## Open decisions (need the owner's input)
 
-1. **[open]** Real loan rules: interest types offered, day-count basis, penalty convention, processing fees, grace, collateral requirements.
+1. **[partly answered]** Loan rules: the model is fixed monthly interest (see Loans). Still needed: penalty on late interest, grace days, weekly or daily loans, the legal rate cap, and collateral requirements by amount.
 2. **[open]** Real chit rules: commission cap and maximum chit value for the owner's state, whether prizes may be paid before all installments are collected, whether payouts need a second approver.
 3. **[open]** Regulatory status (registered chit foreman, NBFC or money-lender registration) and any registers the state requires. Needs a legal advisor.
 4. **[open]** WhatsApp Business (Meta Cloud API) account and approved message templates; the SMS provider and DLT registration if SMS is wanted.
@@ -132,6 +132,24 @@ Status tags: **[built]** in the code today, **[decided]** agreed but not built y
 7. **[open]** Whether customers need a self-service view (planned as a later phase) and which language after English (Tamil assumed).
 8. **[open]** TDS and GST: whether they apply now (built as off by default when added).
 9. **[open]** Hosting choice and domain, and where nightly backups go (R2 or B2 assumed).
+
+## Loans
+
+The owner described their lending: local customers, a fixed interest rate, the customer pays interest every month. Everything below follows from that; items marked **[assumed]** were my defaults, stated to the owner before building, and are one place to correct.
+
+- **Rate:** fixed for the life of the loan, quoted **per month** (200 basis points = 2%), with the yearly equivalent shown for reference. **[assumed]** per month rather than per year.
+- **Interest is simple** and never compounds. It is charged on the principal outstanding **each day**: every day from the cycle start up to, but not including, the day it is paid off counts once, so a full month is exactly principal x rate whatever the month length. One rounding (half up) per month.
+- **Due dates** fall on the anniversary of the disbursement day, measured from the original day (31 Jan gives 28 Feb then 31 Mar). Interest for a month is due at the end of that month. **[assumed]**
+- **Part payments** lower the interest **from that day**, not from next month. **[assumed]**
+- **No interest deducted in advance.** Only a processing fee (percent and/or fixed, per product), deducted from the payout. **[assumed]**
+- **Payments** are one receipt with an interest part and a principal part, so staff always say which they are taking. Interest is applied to the oldest unpaid month first. A customer may pay the running month's interest early, up to what has built up so far. The loan closes automatically when principal and interest are both zero.
+- **Income is counted when collected** (cash basis): disbursement debits Loans receivable and credits cash or bank and fee income; a payment debits cash or bank and credits Loans receivable (principal) and Loan interest income. Unpaid interest is not a ledger entry. At closure the loan's receivable balance is exactly zero, and a test checks it.
+- **History only grows at the end.** A payment cannot be dated before an existing payment on the same loan, and only the latest receipt can be reversed. This is what keeps every past figure and printed receipt true, because interest is worked out from the payment history.
+- **Approval is maker-checker:** nobody approves their own application, except the locked Super Admin (the owner may be the only person entitled to approve). Eligibility is checked at application and again at approval and at payout. A blacklisted or not-yet-active customer is blocked; unverified KYC, watchlist, a CIBIL score under 600, no recorded income, obligations over 50% of income, or two or more active loans are **warnings**, and approving past them needs a written reason that is kept on the loan.
+- **Security (collateral)** is part of the first release because lending without amortisation leans on it. Items on a disbursed loan cannot be deleted, and can be handed back only after the loan is closed. Photos use the same audited, 60-second signed links as KYC documents.
+- **Guarantor** is optional. **[assumed]**
+- **Backdating** a disbursement or payment needs `payment:backdate`, so loans that were already running can be entered with their true dates.
+- **Not built yet:** penalty on late interest (the product has no penalty rate yet; the owner has not given a number), penalty waiver, write-off, restructure or top-up, statements and the no-dues certificate, WhatsApp interest-due reminders, weekly or daily collection loans, importing existing loans in bulk.
 
 ## Bulk customer import (Excel)
 

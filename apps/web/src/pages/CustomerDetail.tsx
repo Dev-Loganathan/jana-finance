@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Eye, Pencil, ShieldCheck, ShieldX, Trash2 } from "lucide-react";
-import { KYC_REQUIRED_DEFAULT, formatINR, type KycDocType } from "@jana/shared";
+import { KYC_REQUIRED_DEFAULT, formatINR, type KycDocType, type Paged } from "@jana/shared";
 import { ApiError, api, apiUrl } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,8 @@ import { FileViewer } from "@/features/customers/FileViewer";
 import { Masked } from "@/features/customers/Reveal";
 import type { CustomerDetail as Customer, CustomerFileInfo, KycDocumentInfo } from "@/features/customers/types";
 import { humanize } from "@/features/customers/wizard/fields";
+import type { LoanListItem } from "@/features/loans/types";
+import { Card as ActionCard, LoanStatusBadge, inr as loanInr } from "@/features/loans/ui";
 
 const DOC_LABEL: Record<KycDocType, string> = {
   AADHAAR: "Aadhaar",
@@ -69,6 +71,50 @@ function Photo({ customer }: { customer: Customer }) {
     staleTime: 30_000,
   });
   return <Avatar name={customer.name} url={link.data ? apiUrl(link.data.url) : null} size={64} />;
+}
+
+function CustomerLoans({ customerId, active }: { customerId: string; active: boolean }) {
+  const can = useCan();
+  const q = useQuery({
+    queryKey: ["loans", "by-customer", customerId],
+    queryFn: () => api<Paged<LoanListItem>>("/loans", { query: { customerId, pageSize: 50 } }),
+    enabled: can("loan:view"),
+  });
+  if (!can("loan:view")) return null;
+  const newLoan = can("loan:create") && active;
+  if (!q.data?.items.length && !newLoan) return null;
+  return (
+    <ActionCard
+      title="Loans"
+      action={
+        newLoan ? (
+          <Button asChild size="sm" variant="secondary">
+            <Link to={`/loans/new?customerId=${customerId}`}>New loan</Link>
+          </Button>
+        ) : undefined
+      }
+    >
+      {q.data?.items.length ? (
+        <ul className="divide-y divide-border text-sm">
+          {q.data.items.map((l) => (
+            <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <Link to={`/loans/${l.id}`} className="font-medium hover:underline">
+                {l.code} · {loanInr(l.principalPaise)} at {l.monthlyRateBp / 100}% a month
+              </Link>
+              <span className="flex items-center gap-2">
+                {l.status === "ACTIVE" && (l.interestOverduePaise ?? 0) > 0 && (
+                  <span className="tabular text-danger">{loanInr(l.interestOverduePaise)} overdue</span>
+                )}
+                <LoanStatusBadge status={l.status} />
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-fg-muted">No loans yet.</p>
+      )}
+    </ActionCard>
+  );
 }
 
 function ChitMemberships({ customerId }: { customerId: string }) {
@@ -188,6 +234,7 @@ function Overview({ c }: { c: Customer }) {
           ]}
         />
       </Card>
+      <CustomerLoans customerId={c.id} active={c.status === "ACTIVE"} />
       <ChitMemberships customerId={c.id} />
       {c.bank !== undefined && (
         <Card title="Bank account (for payouts)">

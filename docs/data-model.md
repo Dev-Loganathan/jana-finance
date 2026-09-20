@@ -83,6 +83,20 @@ erDiagram
 | `ChitPayout`                   | The winner's prize                | PENDING, APPROVED, PAID. Records set-off, net paid and the security check.                                                    |
 | `ChitWaitlist`, `ChitTransfer` | Waiting list and ticket transfers |                                                                                                                               |
 
+## Loans
+
+Fixed-rate, monthly-interest loans (migration `loans`).
+
+- `LoanProduct`: name (unique), default and allowed rate range in basis points a month, amount range, processing fee (basis points plus a fixed amount), `active`.
+- `Loan`: `code` (`LN000001`, from `loan_seq`), customer, product, `principalPaise`, `monthlyRateBp` (fixed for the life of the loan), optional expected term, purpose, processing fee, `status` (`APPLIED`, `APPROVED`, `ACTIVE`, `CLOSED`, `REJECTED`, `CANCELLED`), the eligibility `warnings` found at application and the approver's `overrideReason`, who applied, approved and disbursed, `disbursedOn` (the day interest starts), `closedOn`, optional guarantor.
+- `LoanCollateral`: kind (gold, property, vehicle, cheque, promissory note, document, other), description, estimated value, reference, `HELD` or `RELEASED`. Photos are `CustomerFile` rows with `collateralId` set.
+- `LoanPayment`: `receiptNo` (shares `receipt_seq` with chit receipts), `interestPaise` and `principalPaise` (a database check enforces that they add up to `amountPaise`), mode, `paidOn`, unique `idempotencyKey`, `POSTED` or `REVERSED`, the ledger entry.
+- `LoanInterestAllocation`: how much of a payment's interest went to which monthly cycle (1 is the first month after disbursement).
+
+**Interest is never stored as a running balance.** The interest each month, what is due, overdue and the payoff are computed from the disbursement date, the principal repayments and the interest paid per cycle (`loanPosition` in `packages/shared/src/loan.ts`). A reversed or corrected payment therefore cannot leave a stale figure. Database checks also refuse a non-positive amount, a rate outside 0.01% to 10% a month, and an allocation of zero.
+
+New ledger accounts: `1200 Loans receivable (principal)` and `4300 Loan interest income`. Processing fees post to the existing `4200 Fee income`.
+
 ## Bulk import
 
 | Table         | Purpose                               | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                               |

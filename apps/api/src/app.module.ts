@@ -5,6 +5,7 @@ import { env } from "./config/env";
 import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
 import { ChitsModule } from "./chits/chits.module";
+import { LoansModule } from "./loans/loans.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { CustomersModule } from "./customers/customers.module";
 import { CryptoModule } from "./common/crypto.service";
@@ -31,6 +32,7 @@ import { UsersModule } from "./users/users.module";
     CustomersModule,
     LedgerModule,
     ChitsModule,
+    LoansModule,
     DashboardModule,
   ],
   controllers: [HealthController, LedgerController],

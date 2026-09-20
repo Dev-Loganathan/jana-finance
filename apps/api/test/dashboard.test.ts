@@ -87,8 +87,16 @@ describe("dashboard", () => {
       await prisma.user.update({ where: { id: nobody.id }, data: { roleId: role.id } });
       expect(Object.keys(await dash(await token(app, nobody)))).toEqual(["asOf"]);
 
-      const staff = await dash(staffH); // customer, chit and payment view, but no reports
-      expect(Object.keys(staff).sort()).toEqual(["asOf", "chits", "collections", "customers", "followUps", "overdue"]);
+      const staff = await dash(staffH); // customer, chit, loan and payment view, but no reports
+      expect(Object.keys(staff).sort()).toEqual([
+        "asOf",
+        "chits",
+        "collections",
+        "customers",
+        "followUps",
+        "loans",
+        "overdue",
+      ]);
       expect(staff.cash).toBeUndefined();
       expect(staff.staff).toBeUndefined();
 
@@ -100,6 +108,7 @@ describe("dashboard", () => {
         "collections",
         "customers",
         "followUps",
+        "loans",
         "overdue",
         "staff",
       ]);

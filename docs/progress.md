@@ -1,30 +1,30 @@
 # Jana Finance: Progress
 
-Last updated after commit `06a0df3` (first commit). Design choices are in `docs/decisions.md`; how to run everything is in `README.md`.
+Last updated with the Loans module (Step 1). Design choices are in `docs/decisions.md`; how to run everything is in `README.md`.
 
 ## At a glance
 
-| Area                                                                                               | Status                                                              |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Foundation (auth, users, roles, audit, design system, CI, docs)                                    | Done                                                                |
-| Customers and KYC                                                                                  | Done, with a short list of gaps below                               |
-| Ledger core                                                                                        | Done (minimal): posting, reversal, trial balance                    |
-| Chit funds                                                                                         | Done, with a short list of gaps below                               |
-| Owner dashboard                                                                                    | Done for what exists (customers, chits, collections, overdue, cash) |
-| Loans                                                                                              | **Not started**                                                     |
-| Accounting beyond the ledger core (day close, expenses, bank reconciliation, financial statements) | Not started                                                         |
-| Collections and field operations (agent daily list, routes)                                        | Not started (chit collection screens exist)                         |
-| Notifications (WhatsApp reminders and results)                                                     | Not started                                                         |
-| Reports and exports (registers, statements, scheduled emails)                                      | Not started                                                         |
-| Customer self-service, payment gateway, verification providers                                     | Later phases                                                        |
-| Deployment and hardening                                                                           | Not started                                                         |
+| Area                                                                                               | Status                                                            |
+| -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Foundation (auth, users, roles, audit, design system, CI, docs)                                    | Done                                                              |
+| Customers and KYC                                                                                  | Done, with a short list of gaps below                             |
+| Ledger core                                                                                        | Done (minimal): posting, reversal, trial balance                  |
+| Chit funds                                                                                         | Done, with a short list of gaps below                             |
+| Owner dashboard                                                                                    | Done for what exists (customers, chits, loans, collections, cash) |
+| Loans                                                                                              | **Step 1 done** (fixed monthly interest); later steps below       |
+| Accounting beyond the ledger core (day close, expenses, bank reconciliation, financial statements) | Not started                                                       |
+| Collections and field operations (agent daily list, routes)                                        | Not started (chit collection screens exist)                       |
+| Notifications (WhatsApp reminders and results)                                                     | Not started                                                       |
+| Reports and exports (registers, statements, scheduled emails)                                      | Not started                                                       |
+| Customer self-service, payment gateway, verification providers                                     | Later phases                                                      |
+| Deployment and hardening                                                                           | Not started                                                       |
 
-Size today: 25 database tables in 5 migrations, 90 API operations, 42 permissions, 15 web pages.
+Size today: 30 database tables in 6 migrations, 114 API operations, 42 permissions, 19 web pages.
 
 ## Verification (last run)
 
 - Lint, formatting and type-check: clean for the whole repo.
-- Tests: 65 shared, 257 API integration, 13 browser end-to-end. All passing.
+- Tests: 94 shared, 317 API integration, 14 browser end-to-end. All passing. The loan interest maths is checked against hand-worked figures, and deliberately breaking it in three places, and the payment and approval rules in four more, made the tests fail.
 - The app was run and used through the browser (owner journey and staff journey), and the phone layouts were checked visually for the wizard, customer profile, collections and dashboard.
 - Not verified: the GitHub Actions workflow has never run (nothing is pushed); the setup script has only been run on a machine that already had a database and `.env`; colour contrast has not been measured with a tool; no load or performance test yet.
 
@@ -65,6 +65,10 @@ Size today: 25 database tables in 5 migrations, 90 API operations, 42 permission
 
 Docker image serving API + web app, Render blueprint (`render.yaml`), Neon Postgres, Cloudflare R2 file storage via an S3 driver, migrate-and-seed on start. Image verified locally on an empty database (migrations, seed, demo data, login, SPA routes). Not yet deployed to a real host. See `docs/deploy.md`.
 
+### Loans (Step 1)
+
+Fixed monthly interest on the outstanding principal, principal repaid any time. Loan products; application with a live preview and eligibility checks; maker-checker approval with a written override for warnings; payout to cash or bank with the fee deducted; monthly interest worked out from the payment history (never stored as a balance); one receipt for interest and/or principal with duplicate protection; payoff quote and automatic closure; reversal of the latest receipt; collateral with photos; the collector's "interest to collect" worklist by how late; a Loans tab on the customer profile; a Loans section on the dashboard; six demo loans. Every rupee posts to the ledger and the loan's receivable is exactly zero at closure. See `docs/decisions.md` (Loans) for the rules and what was assumed.
+
 ### Dashboard
 
 - Money, business, collections chart, overdue ageing, upcoming auctions, top defaulters, KYC and risk mix, staff collections, follow-ups, and the balance held for chit members. Sections appear only if the user has the matching permission.
@@ -95,7 +99,7 @@ Docker image serving API + web app, Render blueprint (`render.yaml`), Neon Postg
 
 | Phase                        | What remains                                                                                                                                                                                                                                                                                         |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 3. Loans                     | Products and interest types, application to closure lifecycle, schedules and amortisation preview, collateral and cheque register, repayments, foreclosure, restructure, penalty waiver, write-off, overdue engine and NPA classes, investor deposits                                                |
+| 3. Loans (Steps 2 and 3)     | Step 2: penalty on late interest and its waiver, write-off, statement and no-dues certificate, renewal or top-up. Step 3: reports and exports, WhatsApp interest-due reminders, weekly or daily collection loans, importing existing loans in bulk, restructure, investor deposits                   |
 | 5. Accounting                | Day book, cash book and day close with variance, agent settlement, expenses and petty cash, bank reconciliation, manual journals with approval, staff commission, TDS and GST, financial year handling, trial balance to P&L and balance sheet                                                       |
 | 6. Field operations          | Agent daily list by route and area, follow-up scheduler, geo check-in, offline-tolerant entry (PWA), escalation rules, legal and recovery module                                                                                                                                                     |
 | 7. Notifications and reports | WhatsApp templates, auction reminders to all members (T-3, T-1, day of), due and overdue reminders, result and payout notices, message log and opt-out; the report set (collection, ageing, disbursement, group statements, registers, staff performance, audit); scheduled daily email to the owner |
@@ -104,9 +108,9 @@ Docker image serving API + web app, Render blueprint (`render.yaml`), Neon Postg
 
 ## Next steps (recommended order)
 
-1. **Decide the open questions** in `docs/decisions.md` that block work: real loan rules, the WhatsApp account, whether to keep full Aadhaar numbers.
+1. **Decide the open questions** in `docs/decisions.md` that block work: penalty on late interest, the legal rate cap, the WhatsApp account, whether to keep full Aadhaar numbers.
 2. **WhatsApp reminders** for chit auctions (asked for explicitly): notification provider seam, message templates, background job runner, opt-out and message log. Start with the mock provider, then connect the real account once templates are approved.
-3. **Loans**: the largest missing module and it unlocks several dashboard figures. Products, schedules and unit-tested interest maths first, then lifecycle, collateral and repayments posting to the ledger.
+3. **Loans, Step 2**: overdue handling (penalty once the owner sets a number, waivers, write-off), statement and no-dues certificate, renewal or top-up. Then **WhatsApp interest-due reminders**, which fit this model well.
 4. **Settings and approvals engine**: configurable KYC policy, risk bands and numbering; second-person approval for payouts, transfers, reversals, blacklisting and back-dated entries.
 5. **Accounting essentials**: opening balances, day close, expenses, and bank reconciliation, then the financial statements.
 6. **Agent daily collection screen and reports/registers** (PDF and Excel).

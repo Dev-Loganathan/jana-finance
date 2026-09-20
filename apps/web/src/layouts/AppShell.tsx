@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   CircleDollarSign,
+  HandCoins,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -29,6 +30,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/customers", label: "Customers", icon: Users, anyOf: ["customer:view"] },
+  { to: "/loans", label: "Loans", icon: HandCoins, anyOf: ["loan:view"] },
   { to: "/chits", label: "Chit Funds", icon: CircleDollarSign, anyOf: ["chit:view"] },
   { to: "/user-management", label: "User Management", icon: UserCog, anyOf: ["user:view", "role:view"] },
   { to: "/audit-log", label: "Audit Log", icon: ScrollText, anyOf: ["audit:view"] },

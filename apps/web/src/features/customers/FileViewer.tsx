@@ -5,10 +5,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { CustomerFileInfo } from "./types";
 
 /** Opens a document through a short-lived signed link (issued and audited by the API each time it opens). */
-export function FileViewer({ file, onClose }: { file: CustomerFileInfo | null; onClose: () => void }) {
+export function FileViewer({
+  file,
+  onClose,
+  linkPath = (id) => `/files/${id}/url`,
+}: {
+  file: CustomerFileInfo | null;
+  onClose: () => void;
+  /** Where to ask for the signed link. Defaults to KYC documents. */
+  linkPath?: (fileId: string) => string;
+}) {
   const link = useQuery({
     queryKey: ["file-url", file?.id],
-    queryFn: () => api<{ url: string }>(`/files/${file!.id}/url`),
+    queryFn: () => api<{ url: string }>(linkPath(file!.id)),
     enabled: !!file,
     gcTime: 0,
     staleTime: 0,
