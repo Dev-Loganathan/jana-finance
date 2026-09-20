@@ -11,7 +11,16 @@ const schema = z.object({
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().default(14),
   FIELD_ENCRYPTION_KEY: z.string().min(16),
   BLIND_INDEX_KEY: z.string().min(16),
+  STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_DIR: z.string().default("./storage"),
+  // S3-compatible storage (Cloudflare R2, MinIO, AWS S3). Only read when STORAGE_DRIVER=s3.
+  S3_ENDPOINT: z.string().optional(),
+  S3_BUCKET: z.string().optional(),
+  S3_ACCESS_KEY: z.string().optional(),
+  S3_SECRET_KEY: z.string().optional(),
+  S3_REGION: z.string().default("auto"),
+  // Folder holding the built web app. When it exists the API serves it, so one address serves everything.
+  WEB_DIST_DIR: z.string().optional(),
   FILE_URL_TTL_SECONDS: z.coerce.number().default(60),
   SEED_SUPERADMIN_EMAIL: z.string().email().default("superadmin@janafinance.local"),
   // Same policy as user passwords. Quote it in .env: an unquoted # starts a comment.

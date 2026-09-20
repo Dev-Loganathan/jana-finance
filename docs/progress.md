@@ -61,6 +61,10 @@ Size today: 25 database tables in 5 migrations, 90 API operations, 42 permission
 - Prize payouts with security confirmation, set-off of the winner's own dues, and ledger posting; member passbook; group statement reconciled to the ledger.
 - Demo data: two running groups with several months of history, a member in arrears, and payouts at each stage.
 
+### Hosting (dev/test)
+
+Docker image serving API + web app, Render blueprint (`render.yaml`), Neon Postgres, Cloudflare R2 file storage via an S3 driver, migrate-and-seed on start. Image verified locally on an empty database (migrations, seed, demo data, login, SPA routes). Not yet deployed to a real host. See `docs/deploy.md`.
+
 ### Dashboard
 
 - Money, business, collections chart, overdue ageing, upcoming auctions, top defaulters, KYC and risk mix, staff collections, follow-ups, and the balance held for chit members. Sections appear only if the user has the matching permission.

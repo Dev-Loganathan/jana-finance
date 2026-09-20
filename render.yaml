@@ -1,0 +1,36 @@
+# Render Blueprint: one free web service running the Docker image (API + web app).
+# The database is Neon (external, free): paste its connection string when Render asks for DATABASE_URL.
+services:
+  - type: web
+    name: jana-finance
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL # Neon connection string (sslmode=require)
+        sync: false
+      - key: WEB_ORIGIN # https://<service-name>.onrender.com
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: FIELD_ENCRYPTION_KEY # losing this makes stored Aadhaar/PAN/bank numbers unreadable
+        generateValue: true
+      - key: BLIND_INDEX_KEY
+        generateValue: true
+      - key: SEED_SUPERADMIN_EMAIL
+        sync: false
+      - key: SEED_SUPERADMIN_PASSWORD
+        sync: false
+      - key: SEED_DEMO # true = load 30 demo customers + 2 chit groups (testing only, never with real data)
+        value: "true"
+      - key: STORAGE_DRIVER
+        value: s3
+      - key: S3_ENDPOINT # https://<account-id>.r2.cloudflarestorage.com
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
