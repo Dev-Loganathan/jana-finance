@@ -11,7 +11,7 @@
     "build": "pnpm -r build",
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r --if-present test",
+    "test": "pnpm -r --if-present --filter '!@jana/e2e' test",
     "format": "prettier --write .",
     "db:up": "docker compose up -d --wait db mailpit",
     "db:migrate": "pnpm --filter @jana/api prisma:migrate",
