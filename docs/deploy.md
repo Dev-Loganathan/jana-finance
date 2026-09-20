@@ -49,7 +49,10 @@ On every start `scripts/start-prod.sh` applies migrations, ensures the roles and
 - **Demo logins** (when `SEED_DEMO=true`): `meera@demo.jana` (Manager) and `sathish@demo.jana` (Staff), password
   `Demo!Passw0rd#1`. **Anyone who reads this repo knows that password.** Set `SEED_DEMO=false` once your testers have
   their own accounts, and delete the demo users.
-- **Lost Super Admin access**: use Render's Shell tab: `cd apps/api && npx ts-node prisma/reset-superadmin.ts`.
+- **Lost Super Admin access**: in the Render dashboard set `SEED_SUPERADMIN_PASSWORD` to a new valid password and add
+  `RESET_SUPERADMIN=true`. After the redeploy, sign in with that password (you must then set a new one and 2FA). **Then
+  delete `RESET_SUPERADMIN`**, or every restart resets the account. (On a paid plan you can instead run
+  `cd apps/api && npx ts-node prisma/reset-superadmin.ts` in the Shell tab.)
 - **Swagger docs** are off in production by design.
 - **Other hosts**: the image is host-neutral. Koyeb, Fly.io or any Docker host works with the same variables. Build
   locally with `docker build -t jana-finance .`.
