@@ -751,9 +751,10 @@ describe("loans", () => {
 
   describe("interest-due worklist and stats", () => {
     it("sorts the most urgent first and buckets by how late they are", async () => {
-      const { id } = await activeLoan(); // 15 Jan start, nothing paid
+      const { id, customer: who } = await activeLoan(); // 15 Jan start, nothing paid
       const at = async (asOf: string, bucket = "all") =>
-        (await http().get("/loans/interest-due").query({ asOf, bucket, pageSize: 200 }).set(staffH)).body;
+        (await http().get("/loans/interest-due").query({ asOf, bucket, q: who.firstName, pageSize: 200 }).set(staffH))
+          .body;
       const has = (body: { items: { id: string; bucket: string }[] }) => body.items.find((i) => i.id === id);
 
       expect(has(await at("2025-03-20"))?.bucket).toBe("overdue");
@@ -765,7 +766,13 @@ describe("loans", () => {
       expect(has(await at("2025-01-20"))?.bucket).toBe("later");
       expect(has(await at("2025-01-20", "week"))).toBeUndefined();
 
-      const overdue = await at("2025-03-20", "overdue");
+      // ordering is checked across everyone's loans, not just this one
+      const overdue = (
+        await http()
+          .get("/loans/interest-due")
+          .query({ asOf: "2025-03-20", bucket: "overdue", pageSize: 200 })
+          .set(staffH)
+      ).body;
       const days = overdue.items.map((i: { overdueDays: number }) => i.overdueDays);
       expect([...days].sort((x: number, y: number) => y - x)).toEqual(days); // longest overdue first
       expect(overdue.counts.overdue).toBeGreaterThanOrEqual(1);
